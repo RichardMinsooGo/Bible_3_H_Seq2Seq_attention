@@ -220,6 +220,14 @@ hid_dim = 1024
 
 steps_per_epoch = num_examples//BATCH_SIZE
 
+'''
+3. [PASS] Load datasets
+'''
+
+'''
+4. Build Encoder Block and Exploration
+'''
+
 ## Encoder has single layer of LSTM layer on top of the embedding layer 
 
 # Encoder
@@ -256,7 +264,13 @@ print ('Encoder output shape: (batch size, sequence length, hid_dim) {}'.format(
 print ('Encoder h vecotr shape: (batch size, hid_dim) {}'.format(sample_h.shape))
 print ('Encoder c vector shape: (batch size, hid_dim) {}'.format(sample_c.shape))
 
-# We see from the architecture image that we only require S from encoders to start decoding. 
+'''
+5. [PASS] Build Attention Block and Exploration
+'''
+
+'''
+6. Build Decoder Block and Exploration
+'''
 
 # Decoder
 class Decoder(Model):
@@ -303,7 +317,9 @@ print ('Decoder output shape: (BATCH_SIZE, vocab size) {}'.format(sample_decoder
 print('Decoder_h shape: ', dec_h.shape)
 print('Decoder_c shape: ', dec_c.shape)
 
-# Let's use the default parameters of Adam Optimizer
+'''
+7. Define Loss Function
+'''
 
 loss_object = tf.keras.losses.SparseCategoricalCrossentropy(
     from_logits=True, reduction='none')
@@ -316,6 +332,10 @@ def loss_function(real, pred):
     loss_ *= mask
     
     return tf.reduce_mean(loss_)
+
+'''
+8. Learning Rate Scheduling
+'''
 
 class CustomSchedule(tf.keras.optimizers.schedules.LearningRateSchedule):
     def __init__(self, hid_dim, warmup_steps=4000):
@@ -332,16 +352,23 @@ class CustomSchedule(tf.keras.optimizers.schedules.LearningRateSchedule):
 
 learning_rate = CustomSchedule(hid_dim)
 
-# optimizer = Adam(learning_rate, beta_1=0.9, beta_2=0.98, epsilon=1e-9)
-
-optimizer = tf.keras.optimizers.Adam()
-
 temp_learning_rate_schedule = CustomSchedule(hid_dim)
 
 plt.plot(temp_learning_rate_schedule(tf.range(40000, dtype=tf.float32)))
 plt.ylabel("Learning Rate")
 plt.xlabel("Train Step")
 
+'''
+9. Define Optimizer
+'''
+# Let's use the default parameters of Adam Optimizer
+
+# optimizer = Adam(learning_rate, beta_1=0.9, beta_2=0.98, epsilon=1e-9)
+optimizer = tf.keras.optimizers.Adam()
+
+'''
+10. [OPT] Define Checkpoints Manager
+'''
 
 checkpoint_path = "./checkpoints"
 
@@ -355,6 +382,10 @@ ckpt_manager = tf.train.CheckpointManager(checkpoint, checkpoint_path, max_to_ke
 if ckpt_manager.latest_checkpoint:
     checkpoint.restore(ckpt_manager.latest_checkpoint)
     print('Latest checkpoint restored!!')
+
+'''
+11. Define Training Loop
+'''
 
 @tf.function
 def train_step(inp, tar, enc_state_h, enc_state_c):
@@ -387,6 +418,10 @@ def train_step(inp, tar, enc_state_h, enc_state_c):
     
     return batch_loss
 
+'''
+12. Epochs / each step process
+'''
+
 for epoch in range(N_EPOCHS):
     start = time.time()
     
@@ -409,6 +444,10 @@ for epoch in range(N_EPOCHS):
     print('Epoch {} Loss {:.4f}'.format(epoch + 1,
                                       total_loss / steps_per_epoch))
     print('Time taken for 1 epoch {} sec\n'.format(time.time() - start))
+
+'''
+13. Explore the training result
+'''
 
 def evaluate(sentence):
     sentence = preprocess_sentence(sentence)
@@ -467,6 +506,10 @@ translate(u'¿todavia estan en casa?')
 # wrong translation
 # try to find out.
 translate(u'trata de averiguarlo.')
+
+'''
+14. Explore training result with test dataset 
+'''
 
 def translate_batch(test_dataset):
     with open('output_text.txt', 'w') as f:

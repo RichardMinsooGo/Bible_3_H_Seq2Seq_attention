@@ -244,9 +244,9 @@ class Encoder(Model):
                        recurrent_initializer='glorot_uniform'
                        )
 
-    def call(self, inp_batch, state_h, state_c):
+    def call(self, inp_batch, hidden):
         inp_batch = self.embedding(inp_batch)
-        output, state_h, statec = self.lstm(inp_batch, initial_state=[state_h, state_c])
+        output, state_h, state_c = self.lstm(inp_batch, initial_state = hidden)
         
         return output, state_h, state_c
 
@@ -257,9 +257,9 @@ class Encoder(Model):
 encoder = Encoder(n_enc_vocab, embedding_dim, hid_dim, BATCH_SIZE)
 
 # sample input
-[enc_state_h, enc_state_c] = encoder.initialize_hidden_state()
-enc_output, sample_h, sample_c = encoder(example_input_batch, enc_state_h, enc_state_c)
-print ('Encoder output shape: (batch size, sequence length, hid_dim) {}'.format(enc_output.shape))
+sample_hidden = encoder.initialize_hidden_state()
+sample_output, sample_h, sample_c = encoder(example_input_batch, sample_hidden)
+print ('Encoder output shape: (batch size, sequence length, hid_dim) {}'.format(sample_output.shape))
 print ('Encoder h vecotr shape: (batch size, hid_dim) {}'.format(sample_h.shape))
 print ('Encoder c vector shape: (batch size, hid_dim) {}'.format(sample_c.shape))
 
@@ -327,7 +327,7 @@ class Decoder(Model):
 decoder = Decoder(n_dec_vocab, embedding_dim, hid_dim, BATCH_SIZE, 'luong')
 
 sample_x = tf.random.uniform((BATCH_SIZE, max_length_output))
-decoder.attention_mechanism.setup_memory(enc_output)
+decoder.attention_mechanism.setup_memory(sample_output)
 initial_state = decoder.build_initial_state(BATCH_SIZE, [sample_h, sample_c], tf.float32)
 
 
@@ -389,10 +389,10 @@ if ckpt_manager.latest_checkpoint:
     print('Latest checkpoint restored!!')
 
 @tf.function
-def train_step(inp, tar, enc_state_h, enc_state_c):
+def train_step(inp, tar, enc_hidden):
     loss = 0
     with tf.GradientTape() as tape:
-        enc_output, enc_state_h, enc_state_c = encoder(inp, enc_state_h, enc_state_c)
+        enc_output, enc_state_h, enc_state_c = encoder(inp, enc_hidden)
         # at the beginning we set the decoder state to the encoder state
         dec_state_h, dec_state_c = enc_state_h, enc_state_c
         
@@ -406,22 +406,23 @@ def train_step(inp, tar, enc_state_h, enc_state_c):
         decoder_initial_state = decoder.build_initial_state(BATCH_SIZE, [dec_state_h, dec_state_c], tf.float32)
         pred = decoder(dec_input, decoder_initial_state)
         logits = pred.rnn_output
-        batch_loss = loss_function(real, logits)
+        loss = loss_function(real, logits)
     
     variables = encoder.trainable_variables + decoder.trainable_variables
     gradients = tape.gradient(loss, variables)
     optimizer.apply_gradients(zip(gradients, variables))
     
-    return batch_loss
+    return loss
 
 for epoch in range(N_EPOCHS):
     start = time.time()
     
-    [enc_state_h, enc_state_c] = encoder.initialize_hidden_state()
+    enc_hidden = encoder.initialize_hidden_state()
     total_loss = 0
+    # print(enc_hidden[0].shape, enc_hidden[1].shape)
     
     for (batch, (inp, tar)) in enumerate(train_dataset.take(steps_per_epoch)):
-        batch_loss = train_step(inp, tar, enc_state_h, enc_state_c)
+        batch_loss = train_step(inp, tar, enc_hidden)
         total_loss += batch_loss
 
         if batch % 100 == 0:

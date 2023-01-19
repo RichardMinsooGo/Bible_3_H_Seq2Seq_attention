@@ -224,6 +224,14 @@ steps_per_epoch = num_examples//BATCH_SIZE
 # Encoder Outputs shape = (BATCH_SIZE, max_length_input, hid_dim)
 # Last Hidden State Shape = (BATCH_SIZE, hid_dim)
 
+'''
+3. [PASS] Load datasets
+'''
+
+'''
+4. Build Encoder Block and Exploration
+'''
+
 # Encoder
 class Encoder(Model):
     def __init__(self, vocab_size, embedding_dim, enc_units, BATCH_SIZE):
@@ -256,6 +264,10 @@ sample_hidden = encoder.initialize_hidden_state()
 sample_output, sample_hidden = encoder(example_input_batch, sample_hidden)
 print ('Encoder output shape: (batch size, sequence length, hid_dim) {}'.format(sample_output.shape))
 print ('Encoder Hidden state shape: (batch size, hid_dim) {}'.format(sample_hidden.shape))
+
+'''
+5. Build Attention Block and Exploration
+'''
 
 class LuongAttention(Layer):
     def __init__(self):
@@ -299,6 +311,9 @@ attention_result, attention_weights = attention_layer(sample_hidden, sample_outp
 print("Attention result shape: (batch size, hid_dim) {}".format(attention_result.shape))
 print("Attention weights shape: (BATCH_SIZE, sequence_length, 1) {}".format(attention_weights.shape))
 
+'''
+6. Build Decoder Block and Exploration
+'''
 # Decoder
 class Decoder(Model):
     def __init__(self, vocab_size, embedding_dim, dec_units, BATCH_SIZE):
@@ -351,7 +366,9 @@ sample_decoder_output, _, _ = decoder(tf.random.uniform((BATCH_SIZE, 1)),
 
 print ('Decoder output shape: (BATCH_SIZE, vocab size) {}'.format(sample_decoder_output.shape))
 
-# Let's use the default parameters of Adam Optimizer
+'''
+7. Define Loss Function
+'''
 
 loss_object = tf.keras.losses.SparseCategoricalCrossentropy(
     from_logits=True, reduction='none')
@@ -364,6 +381,10 @@ def loss_function(real, pred):
     loss_ *= mask
     
     return tf.reduce_mean(loss_)
+
+'''
+8. Learning Rate Scheduling
+'''
 
 class CustomSchedule(tf.keras.optimizers.schedules.LearningRateSchedule):
     def __init__(self, hid_dim, warmup_steps=4000):
@@ -380,16 +401,23 @@ class CustomSchedule(tf.keras.optimizers.schedules.LearningRateSchedule):
 
 learning_rate = CustomSchedule(hid_dim)
 
-# optimizer = Adam(learning_rate, beta_1=0.9, beta_2=0.98, epsilon=1e-9)
-
-optimizer = tf.keras.optimizers.Adam()
-
 temp_learning_rate_schedule = CustomSchedule(hid_dim)
 
 plt.plot(temp_learning_rate_schedule(tf.range(40000, dtype=tf.float32)))
 plt.ylabel("Learning Rate")
 plt.xlabel("Train Step")
 
+'''
+9. Define Optimizer
+'''
+# Let's use the default parameters of Adam Optimizer
+
+# optimizer = Adam(learning_rate, beta_1=0.9, beta_2=0.98, epsilon=1e-9)
+optimizer = tf.keras.optimizers.Adam()
+
+'''
+10. [OPT] Define Checkpoints Manager
+'''
 
 checkpoint_path = "./checkpoints"
 
@@ -403,6 +431,10 @@ ckpt_manager = tf.train.CheckpointManager(checkpoint, checkpoint_path, max_to_ke
 if ckpt_manager.latest_checkpoint:
     checkpoint.restore(ckpt_manager.latest_checkpoint)
     print('Latest checkpoint restored!!')
+
+'''
+11. Define Training Loop
+'''
 
 @tf.function
 def train_step(inp, tar, enc_hidden):
@@ -435,6 +467,10 @@ def train_step(inp, tar, enc_hidden):
     
     return batch_loss
 
+'''
+12. Epochs / each step process
+'''
+
 for epoch in range(N_EPOCHS):
     start = time.time()
     
@@ -458,6 +494,10 @@ for epoch in range(N_EPOCHS):
                                       total_loss / steps_per_epoch))
     print('Time taken for 1 epoch {} sec\n'.format(time.time() - start))
 
+'''
+13. Explore the training result
+'''
+
 def evaluate(sentence):
     sentence = preprocess_sentence(sentence)
 
@@ -471,7 +511,6 @@ def evaluate(sentence):
 
     hidden = [tf.zeros((1, hid_dim))]
     enc_out, enc_hidden = encoder(inputs, hidden)
-    
     dec_hidden = enc_hidden
     
     dec_input = tf.expand_dims([TRG_tokenizer.word_index['<start>']], 0)
@@ -517,6 +556,10 @@ translate(u'¿todavia estan en casa?')
 # wrong translation
 # try to find out.
 translate(u'trata de averiguarlo.')
+
+'''
+14. Explore training result with test dataset 
+'''
 
 def translate_batch(test_dataset):
     with open('output_text.txt', 'w') as f:

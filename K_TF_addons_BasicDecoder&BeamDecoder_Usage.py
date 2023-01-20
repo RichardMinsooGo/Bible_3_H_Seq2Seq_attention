@@ -8,7 +8,7 @@
 import tensorflow_addons as tfa
 
 '''
-1.  Import Libraries for Data and Model Engineering
+1. Import Libraries for Data and Model Engineering
 '''
 
 import matplotlib.ticker as ticker
@@ -105,7 +105,6 @@ def create_dataset(path, num_examples):
 # creating cleaned input, output pairs
 trg_sentence, src_sentence = create_dataset(file_path, num_examples)
 
-
 '''
 6. Tokenizer and Vocab define
 '''
@@ -182,10 +181,10 @@ tkn_targets = pad_sequences(tokenized_outputs, padding='post')
 '''
 11. Explore the Tokenized datasets.
 '''
-print('질문 데이터의 크기(shape) :', tkn_sources.shape)
-print('답변 데이터의 크기(shape) :', tkn_targets.shape)
+print('Size of source language data(shape) :', tkn_sources.shape)
+print('Size of target language data(shape) :', tkn_targets.shape)
 
-# 0번째 샘플을 임의로 출력
+# Randomly output the 0th sample
 print(tkn_sources[0])
 print(tkn_targets[0])
 
@@ -211,8 +210,6 @@ print("Target Vocabulary Size: {}".format(len(TRG_tokenizer.word_index)))
 example_input_batch, example_target_batch = next(iter(train_dataset))
 example_input_batch.shape, example_target_batch.shape
 
-
-
 max_length_input  = example_input_batch.shape[1]
 max_length_output = example_target_batch.shape[1]
 
@@ -223,12 +220,28 @@ max_length_input, max_length_output, n_enc_vocab, n_dec_vocab
 Part B. Model Engineering
 '''
 
+'''
+1. [PASS] Import Libraries
+'''
+
+'''
+2. Define Hyperparameters for Model Engineering
+'''
 embedding_dim = 128
 hid_dim = 1024
 
 steps_per_epoch = num_examples//BATCH_SIZE
 
+'''
+3. [PASS] Load datasets
+'''
+
+'''
+4. Build Encoder Block and Exploration
+'''
+
 ## Encoder has single layer of LSTM layer on top of the embedding layer 
+
 # Encoder
 class Encoder(Model):
     def __init__(self, vocab_size, embedding_dim, enc_units, BATCH_SIZE):
@@ -258,12 +271,19 @@ encoder = Encoder(n_enc_vocab, embedding_dim, hid_dim, BATCH_SIZE)
 
 # sample input
 sample_hidden = encoder.initialize_hidden_state()
-sample_output, sample_h, sample_c = encoder(example_input_batch, sample_hidden)
-print ('Encoder output shape: (batch size, sequence length, hid_dim) {}'.format(sample_output.shape))
+enc_output, sample_h, sample_c = encoder(example_input_batch, sample_hidden)
+print ('Encoder output shape: (batch size, sequence length, hid_dim) {}'.format(enc_output.shape))
 print ('Encoder h vecotr shape: (batch size, hid_dim) {}'.format(sample_h.shape))
 print ('Encoder c vector shape: (batch size, hid_dim) {}'.format(sample_c.shape))
 
+'''
+5. [PASS] Build Attention Block and Exploration
+'''
 
+
+'''
+6. Build Decoder Block and Exploration
+'''
 # Decoder
 class Decoder(Model):
     def __init__(self, vocab_size, embedding_dim, dec_units, BATCH_SIZE, attention_type='luong'):
@@ -327,7 +347,7 @@ class Decoder(Model):
 decoder = Decoder(n_dec_vocab, embedding_dim, hid_dim, BATCH_SIZE, 'luong')
 
 sample_x = tf.random.uniform((BATCH_SIZE, max_length_output))
-decoder.attention_mechanism.setup_memory(sample_output)
+decoder.attention_mechanism.setup_memory(enc_output)
 initial_state = decoder.build_initial_state(BATCH_SIZE, [sample_h, sample_c], tf.float32)
 
 
@@ -335,7 +355,9 @@ sample_decoder_outputs = decoder(sample_x, initial_state)
 
 print("Decoder Outputs Shape: ", sample_decoder_outputs.rnn_output.shape)
 
-# Let's use the default parameters of Adam Optimizer
+'''
+7. Define Loss Function
+'''
 
 loss_object = tf.keras.losses.SparseCategoricalCrossentropy(
     from_logits=True, reduction='none')
@@ -348,6 +370,10 @@ def loss_function(real, pred):
     loss_ *= mask
     
     return tf.reduce_mean(loss_)
+
+'''
+8. Learning Rate Scheduling
+'''
 
 class CustomSchedule(tf.keras.optimizers.schedules.LearningRateSchedule):
     def __init__(self, hid_dim, warmup_steps=4000):
@@ -364,16 +390,23 @@ class CustomSchedule(tf.keras.optimizers.schedules.LearningRateSchedule):
 
 learning_rate = CustomSchedule(hid_dim)
 
-# optimizer = Adam(learning_rate, beta_1=0.9, beta_2=0.98, epsilon=1e-9)
-
-optimizer = tf.keras.optimizers.Adam()
-
 temp_learning_rate_schedule = CustomSchedule(hid_dim)
 
 plt.plot(temp_learning_rate_schedule(tf.range(40000, dtype=tf.float32)))
 plt.ylabel("Learning Rate")
 plt.xlabel("Train Step")
 
+'''
+9. Define Optimizer
+'''
+# Let's use the default parameters of Adam Optimizer
+
+# optimizer = Adam(learning_rate, beta_1=0.9, beta_2=0.98, epsilon=1e-9)
+optimizer = tf.keras.optimizers.Adam()
+
+'''
+10. [OPT] Define Checkpoints Manager
+'''
 
 checkpoint_path = "./checkpoints"
 
@@ -388,12 +421,25 @@ if ckpt_manager.latest_checkpoint:
     checkpoint.restore(ckpt_manager.latest_checkpoint)
     print('Latest checkpoint restored!!')
 
+'''
+11. Define Training Loop
+'''
+
 @tf.function
 def train_step(inp, tar, enc_hidden):
     loss = 0
+    '''
+    T1. Clear Gradients
+    '''
     with tf.GradientTape() as tape:
+        '''
+        T2. Encoder Output / Hidden State, Cell State
+        '''
         enc_output, enc_state_h, enc_state_c = encoder(inp, enc_hidden)
-        # at the beginning we set the decoder state to the encoder state
+        
+        '''
+        T3. At the begining, set the decoder state to the encoder state
+        '''
         dec_state_h, dec_state_c = enc_state_h, enc_state_c
         
         dec_input = tar[ : , :-1 ] # Ignore <end> token
@@ -408,20 +454,37 @@ def train_step(inp, tar, enc_hidden):
         logits = pred.rnn_output
         loss = loss_function(real, logits)
     
+    '''
+    T8. Compute gradients / Backpropagation
+    '''
     variables = encoder.trainable_variables + decoder.trainable_variables
     gradients = tape.gradient(loss, variables)
+    
+    '''
+    T9. Adjust learnable parameters
+    '''
     optimizer.apply_gradients(zip(gradients, variables))
     
     return loss
 
+'''
+12. Epochs / each step process
+'''
+
 for epoch in range(N_EPOCHS):
     start = time.time()
     
+    '''
+    S1. Initialize Encoder hidden state
+    '''
     enc_hidden = encoder.initialize_hidden_state()
     total_loss = 0
     # print(enc_hidden[0].shape, enc_hidden[1].shape)
     
     for (batch, (inp, tar)) in enumerate(train_dataset.take(steps_per_epoch)):
+        '''
+        S2. Run training loop
+        '''
         batch_loss = train_step(inp, tar, enc_hidden)
         total_loss += batch_loss
 
@@ -429,6 +492,9 @@ for epoch in range(N_EPOCHS):
             print('Epoch {} Batch {} Loss {:.4f}'.format(epoch + 1,
                                                    batch,
                                                    batch_loss.numpy()))
+    '''
+    S3. Checkpoint manager
+    '''
     # saving (checkpoint) the model every 2 epochs
     if (epoch + 1) % 2 == 0:
         ckpt_save_path = ckpt_manager.save()
@@ -438,17 +504,34 @@ for epoch in range(N_EPOCHS):
                                       total_loss / steps_per_epoch))
     print('Time taken for 1 epoch {} sec\n'.format(time.time() - start))
 
+'''
+13. Explore the training result with new raw sentence
+'''
+
 def evaluate(sentence):
+    '''
+    E1. Data Engineering for raw text
+    '''
+    # Preprocess sentence
     sentence = preprocess_sentence(sentence)
 
+    # Tokenize sentence
     inputs = [SRC_tokenizer.word_index[i] for i in sentence.split(' ')]
+    
+    # Padding
     inputs = pad_sequences([inputs],
                            maxlen=max_length_input,
                            padding='post')
+    # Convert to tensor 
     inputs = tf.convert_to_tensor(inputs)
     inference_batch_size = inputs.shape[0]
+    
+    # Result Initialization
     result = ''
 
+    '''
+    E2. Initialize encoder hidden state as Zeros
+    '''
     enc_start_state = [tf.zeros((inference_batch_size, hid_dim)), tf.zeros((inference_batch_size,hid_dim))]
     enc_output, enc_state_h, enc_state_c = encoder(inputs, enc_start_state)
 
@@ -496,6 +579,10 @@ translate(u'¿todavia estan en casa?')
 # wrong translation
 # try to find out.
 translate(u'trata de averiguarlo.')
+
+'''
+14. Beam Search
+'''
 
 def beam_evaluate(sentence, beam_width=3):
     sentence = preprocess_sentence(sentence)

@@ -315,7 +315,6 @@ print("Attention weights shape: (BATCH_SIZE, sequence_length, 1) {}".format(atte
 '''
 6. Build Decoder Block and Exploration
 '''
-
 # Decoder
 class Decoder(Model):
     def __init__(self, vocab_size, embedding_dim, dec_units, BATCH_SIZE):
@@ -443,11 +442,23 @@ if ckpt_manager.latest_checkpoint:
 @tf.function
 def train_step(inp, tar, enc_state_h, enc_state_c):
     loss = 0
+    '''
+    T1. Clear Gradients
+    '''
     with tf.GradientTape() as tape:
+        '''
+        T2. Encoder Output / Hidden State, Cell State
+        '''
         enc_output, enc_state_h, enc_state_c = encoder(inp, enc_state_h, enc_state_c)
-        # at the beginning we set the decoder state to the encoder state
+        
+        '''
+        T3. At the begining, set the decoder state to the encoder state
+        '''
         dec_state_h, dec_state_c = enc_state_h, enc_state_c
         
+        '''
+        T4. At the begining, Feed the <start> token as Decoder-Input
+        '''        
         # at the begining we feed the <start> token as input for the decoder, 
         # then we will feed the target as input
         dec_input = tf.expand_dims([TRG_tokenizer.word_index['<start>']] * BATCH_SIZE, 1)
@@ -455,9 +466,17 @@ def train_step(inp, tar, enc_state_h, enc_state_c):
         # Teacher forcing - feeding the target as the next input
         # tar.shape[1] == seq length
         for t in range(1, tar.shape[1]):
+            
+            '''
+            T5. Compute Attention at the Decoder Class
+            T6. Decoder Output / Hidden State, Cell State
+            '''
             # passing enc_output to the decoder
             predictions, dec_state_h, dec_state_c, _ = decoder(dec_input, dec_state_h, dec_state_c, enc_output)
             
+            '''
+            T7. Compute loss 
+            '''
             loss += loss_function(tar[:, t], predictions)
 
             # using teacher forcing
@@ -465,8 +484,15 @@ def train_step(inp, tar, enc_state_h, enc_state_c):
         
     batch_loss = (loss / int(tar.shape[1]))
     
+    '''
+    T8. Compute gradients / Backpropagation
+    '''
     variables = encoder.trainable_variables + decoder.trainable_variables
     gradients = tape.gradient(loss, variables)
+    
+    '''
+    T9. Adjust learnable parameters
+    '''
     optimizer.apply_gradients(zip(gradients, variables))
     
     return batch_loss
@@ -478,10 +504,16 @@ def train_step(inp, tar, enc_state_h, enc_state_c):
 for epoch in range(N_EPOCHS):
     start = time.time()
     
+    '''
+    S1. Initialize Encoder hidden state
+    '''
     [enc_state_h, enc_state_c] = encoder.initialize_hidden_state()
     total_loss = 0
     
     for (batch, (inp, tar)) in enumerate(train_dataset.take(steps_per_epoch)):
+        '''
+        S2. Run training loop
+        '''
         batch_loss = train_step(inp, tar, enc_state_h, enc_state_c)
         total_loss += batch_loss
 
@@ -489,6 +521,9 @@ for epoch in range(N_EPOCHS):
             print('Epoch {} Batch {} Loss {:.4f}'.format(epoch + 1,
                                                    batch,
                                                    batch_loss.numpy()))
+    '''
+    S3. Checkpoint manager
+    '''
     # saving (checkpoint) the model every 2 epochs
     if (epoch + 1) % 2 == 0:
         ckpt_save_path = ckpt_manager.save()
@@ -499,27 +534,55 @@ for epoch in range(N_EPOCHS):
     print('Time taken for 1 epoch {} sec\n'.format(time.time() - start))
 
 '''
-13. Explore the training result
+13. Explore the training result with new raw sentence
 '''
 
 def evaluate(sentence):
+    '''
+    E1. Data Engineering for raw text
+    '''
+    # Preprocess sentence
     sentence = preprocess_sentence(sentence)
 
+    # Tokenize sentence
     inputs = [SRC_tokenizer.word_index[i] for i in sentence.split(' ')]
+    
+    # Padding
     inputs = pad_sequences([inputs],
                            maxlen=max_length_input,
                            padding='post')
+    # Convert to tensor 
     inputs = tf.convert_to_tensor(inputs)
 
+    # Result Initialization
     result = ''
 
+    '''
+    E2. Initialize encoder hidden state as Zeros
+    '''
     [enc_state_h, enc_state_c] = [tf.zeros((1, hid_dim)), tf.zeros((1, hid_dim))]
+    
+    '''
+    E3. Encoder Output / Hidden State, Cell State
+    '''
     enc_out, enc_state_h, enc_state_c = encoder(inputs, enc_state_h, enc_state_c)
+    
+    '''
+    E4. At the beginning, set the decoder state to the encoder state
+    '''
     dec_state_h, dec_state_c = enc_state_h, enc_state_c
     
+    '''
+    E5. At the beginning, Feed the <start> token as Decoder-Input
+    '''
     dec_input = tf.expand_dims([TRG_tokenizer.word_index['<start>']], 0)
 
     for t in range(max_length_output):
+        
+        '''
+        E6. Compute Attention at the Decoder Class
+        E7. Decoder Output / Hidden State, Cell State
+        '''
         predictions, dec_state_h, dec_state_c, attention_weights = decoder(dec_input, 
                                                              dec_state_h, 
                                                              dec_state_c, 
@@ -528,15 +591,21 @@ def evaluate(sentence):
         # storing the attention weights to plot later on
         attention_weights = tf.reshape(attention_weights, (-1, ))
 
+        '''
+        E8. Prediction ID and Build result
+        '''
         predicted_id = tf.argmax(predictions[0]).numpy()
-
         result += TRG_tokenizer.index_word[predicted_id] + ' '
 
-        # stop prediction
+        '''
+        E9. Stop prediction
+        '''
         if TRG_tokenizer.index_word[predicted_id] == '<end>':
             return result, sentence
-
-        # the predicted ID is fed back into the model
+        
+        '''
+        E10. The predicted ID is fed back into the model
+        '''
         dec_input = tf.expand_dims([predicted_id], 0)
 
     return result, sentence
@@ -564,22 +633,61 @@ translate(u'¿todavia estan en casa?')
 translate(u'trata de averiguarlo.')
 
 '''
-14. Explore training result with test dataset 
+14. Explore the training result with test dataset
 '''
 
 def translate_batch(test_dataset):
+    
+    '''
+    B1. Open output_text file
+    '''
     with open('output_text.txt', 'w') as f:
         for (inputs, targets) in test_dataset:
+            '''
+            B2. Outputs Initialization
+            '''
             outputs = np.zeros((BATCH_SIZE, max_length_output),dtype=np.int16)
+            
+            '''
+            B3. Initialize encoder hidden state as Zeros
+            '''
             [enc_state_h, enc_state_c] = [tf.zeros((BATCH_SIZE, hid_dim)), tf.zeros((BATCH_SIZE, hid_dim))]
+            
+            '''
+            B4. Encoder Output / Hidden State, Cell State
+            '''
             enc_output, dec_h, dec_c = encoder(inputs, enc_state_h, enc_state_c )
+            
+            '''
+            B5. At the begining, Feed the <start> token as Decoder-Input
+            '''
             dec_input = tf.expand_dims([TRG_tokenizer.word_index['<start>']] * BATCH_SIZE, 1)
+            
             for t in range(max_length_output):
+                '''
+                B6. Compute Attention at the Decoder Class
+                B7. Decoder Output / Hidden State, Cell State
+                '''
                 preds, dec_h, dec_c,  _ = decoder(dec_input, dec_h, dec_c, enc_output)
+                
+                '''
+                B8. Prediction ID and Build result (Token)
+                '''
                 predicted_id = tf.argmax(preds, axis=1).numpy()
                 outputs[:, t] = predicted_id
+                
+                '''
+                B9. The predicted ID is fed back into the Decoder
+                '''
                 dec_input = tf.expand_dims(predicted_id, 1)
+            '''
+            B10. Tokens to Sentences
+            '''
             outputs = TRG_tokenizer.sequences_to_texts(outputs)
+            
+            '''
+            B11. Truncate the <end> and store the results
+            '''
             for t, item in enumerate(outputs):
                 try:
                     i = item.index('<end>')
